@@ -4,17 +4,17 @@ pipeline {
     environment {
         AWS_REGION = 'us-west-2' // Set AWS region
         EKS_CLUSTER_NAME = 'kube-autoscale-cluster' // Set EKS cluster name
-        DOCKER_IMAGE = 'prathyushamogili729/scrapyd-test:v3"' // Docker repository and image name
+        DOCKER_IMAGE = 'prathyushamogili729/scrapyd-test:v3' // Docker repository and image name
         K8S_NAMESPACE = 'web-scraper' // Kubernetes namespace
-        KUBECONFIG_CREDENTIALS_ID = 'kubeconfig-credentials-id' // Need to Replace with Jenkins credentials ID
-        DOCKER_CREDENTIALS_ID = 'docker-credentials-id' // Need to Replace with Jenkins credentials ID
+        KUBECONFIG_CREDENTIALS_ID = 'kubeconfig-credentials-id' // Replace with Jenkins credentials ID
+        DOCKER_CREDENTIALS_ID = 'docker-credentials-id' // Replace with Jenkins credentials ID
     }
 
     stages {
         stage('Checkout') {
             steps {
                 // Checkout the code from your repository
-                git 'https://github.com/your-repo/web-scraper.git' // Replace with your repo URL
+                git 'https://github.com/connect2prathyushagithub/scrapyd-k8s'
             }
         }
 
@@ -27,11 +27,11 @@ pipeline {
             }
         }
 
-        stage('Run Tests') {
+        stage('Run Unit Tests') {
             steps {
                 script {
-                    // Run tests (adjust according to your testing framework)
-                    sh 'pytest tests/'
+                    // Run unit tests
+                    sh 'pytest tests/unit/'
                 }
             }
         }
@@ -40,7 +40,7 @@ pipeline {
             steps {
                 script {
                     // Log in to ECR (if using AWS ECR)
-                    sh 'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin your-ecr-repo' // Change to your ECR repo
+                    sh 'aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin your-ecr-repo' // Replace with your ECR repo
 
                     // Push the Docker image
                     sh 'docker push $DOCKER_IMAGE'
@@ -54,10 +54,11 @@ pipeline {
                     // Set kubectl context to your EKS cluster
                     sh 'aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME'
 
-                    // Apply Kubernetes manifests (adjust to your setup)
-                    sh 'kubectl apply -f k8s/deployment.yaml' // Path to your Kubernetes deployment manifest
-                    sh 'kubectl apply -f k8s/service.yaml' // Path to your Kubernetes service manifest
-                    sh 'kubectl apply -f k8s/hpa.yaml' // Path to your Horizontal Pod Autoscaler manifest
+                    // Deploy Kubernetes deployment
+                    sh 'kubectl apply -f k8s/deployment.yaml' 
+                    sh 'kubectl apply -f k8s/metrics-server.yaml'
+                    sh 'kubectl apply -f k8s/pdb.yaml'
+                    sh 'kubectl apply -f k8s/hpa.yaml' 
                 }
             }
         }
@@ -65,9 +66,20 @@ pipeline {
         stage('Post-Deployment Testing') {
             steps {
                 script {
-                    // Implement testing logic for deployed services, if necessary
-                    // e.g., health checks or running integration tests
-                    sh 'curl -f http://your-service-endpoint/health' // Replace with your service endpoint
+                    // Check the status of the deployment
+                    sh 'kubectl rollout status deployment/scrapyd-k8s -n $K8S_NAMESPACE'
+                    
+                    // Verify the service is running
+                    sh 'kubectl get svc -n $K8S_NAMESPACE'
+                }
+            }
+        }
+
+        stage('Run Integration Tests') {
+            steps {
+                script {
+                    // Run integration tests to validate the scrapers are functioning as expected
+                    sh 'pytest tests/integration/'
                 }
             }
         }
@@ -75,11 +87,9 @@ pipeline {
 
     post {
         success {
-            // Notify on success (you can customize this)
             echo 'Deployment Successful!'
         }
         failure {
-            // Notify on failure
             echo 'Deployment Failed!'
         }
     }
